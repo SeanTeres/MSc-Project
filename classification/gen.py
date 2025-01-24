@@ -17,11 +17,11 @@ from helpers import read_and_normalize_xray, split_with_indices, create_dataload
 from classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier1
 from train_utils import train_model, test_model
 
-dicom_dir_1 = 'MBOD Datasets/Dataset 1'
-metadata_1 = pd.read_excel('MBOD Datasets/Dataset 1/FileDatabaseWithRadiology.xlsx')
+dicom_dir_1 = 'MBOD_Datasets/Dataset 1'
+metadata_1 = pd.read_excel('MBOD_Datasets/Dataset 1/FileDatabaseWithRadiology.xlsx')
 
-dicom_dir_2 = 'MBOD Datasets/Dataset 2'
-metadata_2 = pd.read_excel('MBOD Datasets/Dataset 2/Database_Training-2024.08.28.xlsx')
+dicom_dir_2 = 'MBOD_Datasets/Dataset 2'
+metadata_2 = pd.read_excel('MBOD_Datasets/Dataset 2/Database_Training-2024.08.28.xlsx')
 
 
 d1 = DICOMDataset1(dicom_dir=dicom_dir_1, metadata_df=metadata_1)
