@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-from helpers import read_and_normalize_xray, split_with_indices, create_dataloaders
-from classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier1
+from classification.helpers import read_and_normalize_xray, split_with_indices, create_dataloaders
+from classification.classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier1
 
 def train_model(train_loader, val_loader, model, n_epochs, lr, device):
     """Function to train a model on a given training dataloader."""

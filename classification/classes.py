@@ -14,7 +14,7 @@ import pandas as pd
 import torch.nn.functional as F
 import torch.nn as nn
 
-from helpers import read_and_normalize_xray, split_with_indices
+from classification.helpers import read_and_normalize_xray, split_with_indices
 
 resize_transform = transforms.Compose([xrv.datasets.XRayResizer(224)])
 

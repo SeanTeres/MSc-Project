@@ -1,1 +1,4 @@
 MBOD_Datasets/
+cyclegan.py
+discriminator.py
+generator.py
