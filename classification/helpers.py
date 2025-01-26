@@ -15,6 +15,8 @@ from sklearn.model_selection import train_test_split
 import torch.nn.functional as F
 import torch.nn as nn
 
+import classes
+
 def read_and_normalize_xray(dicom_name, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True):
     """Reads a DICOM file, normalizes it, and returns the tensor and pixel array."""
     ds = pydicom.dcmread(dicom_name)
@@ -72,4 +74,22 @@ def create_dataloaders(train, aug_train, val, test, batch_size):
     test_loader = DataLoader(test, batch_size=batch_size, shuffle=False)
     
     return train_loader, aug_train_loader, val_loader, test_loader
+
+def read_data(d1, d2):
+    train_d1, val_d1, test_d1 = split_with_indices(d1, 0.7)
+    train_d2, val_d2, test_d2 = split_with_indices(d2, 0.7)
+
+    # Define augmentations as individual transforms
+    augmentations_list = [
+        transforms.RandomHorizontalFlip(p=1.0),  # Always flip
+        transforms.RandomRotation(15),# Rotate by 15 degrees
+        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)) # Slight Blur
+
+    ]
+
+    # Wrap the training set in the augmented dataset
+    augmented_train_d1 = classes.AugmentedDataset(base_dataset=train_d1, augmentations_list=augmentations_list)
+    augmented_train_d2 = classes.AugmentedDataset(base_dataset=train_d2, augmentations_list=augmentations_list)
+
+    return train_d1, augmented_train_d1, val_d1, test_d1, train_d2, augmented_train_d2, val_d2, test_d2
 

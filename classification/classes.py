@@ -14,16 +14,16 @@ import pandas as pd
 import torch.nn.functional as F
 import torch.nn as nn
 
-from classification.helpers import read_and_normalize_xray, split_with_indices
+from helpers import read_and_normalize_xray, split_with_indices
 
-resize_transform = transforms.Compose([xrv.datasets.XRayResizer(224)])
 
 class DICOMDataset1(Dataset):
-    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=(224, 224)):
+    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224, target_label=None):
         self.dicom_dir = dicom_dir
         self.metadata_df = metadata_df
         self.transform = transform
         self.target_size = target_size
+        self.target_label = target_label
 
     def __len__(self):
         return len(self.metadata_df)
@@ -31,54 +31,125 @@ class DICOMDataset1(Dataset):
 
     def __getitem__(self, idx):
         dicom_filename = self.metadata_df.iloc[idx]['(0020,000d) UI Study Instance UID']
-        profusion = self.metadata_df.iloc[idx]['Profusion']
 
+        if (self.target_label == "Profusion"):
+            profusion = self.metadata_df.iloc[idx]['Profusion']
 
-        if profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']:
-            profusion_label = 1
+            if profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']:
+                target = 1
+            else:
+                target = 0
+
+        elif(self.target_label == "TBA/TBU"):
+            
+            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
+            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
+
+            # Check if 'tba' or 'tbu' is in tba_1 or tba_2
+            contains_tba_or_tbu_1 = 'tba' in tba_1 or 'tbu' in tba_1
+            contains_tba_or_tbu_2 = 'tba' in tba_2 or 'tbu' in tba_2
+
+            # Example usage
+            if contains_tba_or_tbu_1 or contains_tba_or_tbu_2:
+                target = 1
+            else:
+                target = 0
+
+        elif(self.target_label == "Profusion Or TBA/TBU"):
+            profusion = self.metadata_df.iloc[idx]['Profusion']
+            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
+            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
+
+            # Check if 'tba' or 'tbu' is in tba_1 or tba_2
+            contains_tba_or_tbu_1 = 'tba' in tba_1 or 'tbu' in tba_1
+            contains_tba_or_tbu_2 = 'tba' in tba_2 or 'tbu' in tba_2
+
+            # Example usage
+            if (profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']) or contains_tba_or_tbu_1 or contains_tba_or_tbu_2:
+                target = 1
+            else:
+                target = 0
+        
+        elif (self.target_label == "Profusion and TBA/TBU"):
+            profusion = self.metadata_df.iloc[idx]['Profusion']
+            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
+            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
+
+            contains_tba_or_tbu_1 = 'tba' in tba_1 or 'tbu' in tba_1
+            contains_tba_or_tbu_2 = 'tba' in tba_2 or 'tbu' in tba_2
+
+            if (profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']) and (contains_tba_or_tbu_1 or contains_tba_or_tbu_2):
+                target = 1
+            else:
+                target = 0
         else:
-            profusion_label = 0
+            print("Target not recognized")
 
         dicom_file = os.path.join(self.dicom_dir, dicom_filename + '.dcm')
 
         pixel_tensor, pixel_array = read_and_normalize_xray(dicom_file, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True)
+        resize_transform = transforms.Compose([xrv.datasets.XRayResizer(self.target_size)])
+
         pixel_tensor = resize_transform(pixel_tensor.numpy())
         pixel_tensor = pixel_tensor.squeeze(0)
         pixel_tensor = transforms.ToTensor()(pixel_tensor)
 
         # Return the processed image and label information
-        return pixel_tensor, profusion_label
+        return pixel_tensor, target
     
     
 class DICOMDataset2(Dataset):
-    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=(224, 224)):
+    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224, target_label=None):
         self.dicom_dir = dicom_dir
         self.metadata_df = metadata_df
         self.transform = transform
         self.target_size = target_size
+        self.target_label = target_label
 
     def __len__(self):
         return len(self.metadata_df)
 
 
     def __getitem__(self, idx):
-        dicom_filename = self.metadata_df.iloc[idx]['Anonymized Filename']
-        profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
 
-        if profusion:
-            profusion_label = 1
-        else:
-            profusion_label = 0
+        dicom_filename = self.metadata_df.iloc[idx]['Anonymized Filename']
+
+        if (self.target_label == "Profusion"):
+            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
+
+            target = 1 if profusion else 0
+
+        elif(self.target_label == "TBA/TBU"):
+            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
+
+            target = 1 if tba else 0
+
+        elif(self.target_label == "Profusion Or TBA/TBU"):
+
+            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
+            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
+
+            target = 1 if (profusion or tba) else 0
+        
+        elif(self.target_label == "Profusion and TBA/TBU"):
+
+            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
+            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
+
+            target = 1 if (profusion and tba) else 0
 
         dicom_file = os.path.join(self.dicom_dir, dicom_filename) # remove .dcm for D2
 
         pixel_tensor, pixel_array = read_and_normalize_xray(dicom_file, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True)
+
+        resize_transform = transforms.Compose([xrv.datasets.XRayResizer(self.target_size)])
+
         pixel_tensor = resize_transform(pixel_tensor.numpy())
         pixel_tensor = pixel_tensor.squeeze(0)
         pixel_tensor = transforms.ToTensor()(pixel_tensor)
 
         # Return the processed image and label information
-        return pixel_tensor, profusion_label
+        return pixel_tensor, target
     
 class AugmentedDataset(Dataset):
     def __init__(self, base_dataset, augmentations_list):
@@ -107,9 +178,9 @@ class AugmentedDataset(Dataset):
         return pixel_tensor, label
 
 
-class BaseClassifier1(nn.Module):
+class BaseClassifier(nn.Module):
     def __init__(self, in_features):
-        super(BaseClassifier1, self).__init__()
+        super(BaseClassifier, self).__init__()
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(in_features, 512)  # Input size is 1024
         self.fc2 = nn.Linear(512, 256)            # Additional hidden layer

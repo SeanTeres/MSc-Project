@@ -1,4 +1,8 @@
 MBOD_Datasets/
+wandb/
+pycache/
+classification/pycache/
 cyclegan.py
 discriminator.py
 generator.py
+config.yaml
