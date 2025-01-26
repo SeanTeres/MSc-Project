@@ -13,6 +13,8 @@ from torchxrayvision.datasets import XRayCenterCrop
 import pandas as pd
 import wandb
 import yaml
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.metrics import precision_score, recall_score, f1_score, cohen_kappa_score, classification_report, confusion_matrix
 import helpers, train_utils, classes
 
@@ -102,6 +104,19 @@ for experiment_name, experiment in config['experiments'].items():
 
     print(f"Confusion Matrix ({experiment['train_dataset']}-D2):")
     print(cm_d2)
+
+
+    plt.figure(figsize=(10,6))
+
+    plt.subplot(1, 2, 1)
+    sns.heatmap(cm_d1, annot=True, fmt='d', cmap='Blues')
+    plt.title(f"Confusion Matrix ({experiment['train_dataset']}- MBOD 1)")
+
+    plt.subplot(1, 2, 2)
+    sns.heatmap(cm_d2, annot=True, fmt='d', cmap='Blues')
+    plt.title(f"Confusion Matrix ({experiment['train_dataset']}- MBOD 2)")
+
+    plt.savefig(f"conf_mat_{experiment['train_dataset']}_MBOD_2.png")
 
     wandb.finish()
 
