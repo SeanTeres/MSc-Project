@@ -14,8 +14,7 @@ import pandas as pd
 import torch.nn.functional as F
 import torch.nn as nn
 
-from helpers import read_and_normalize_xray, split_with_indices
-
+import helpers
 
 class DICOMDataset1(Dataset):
     def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224, target_label=None):
@@ -24,79 +23,62 @@ class DICOMDataset1(Dataset):
         self.transform = transform
         self.target_size = target_size
         self.target_label = target_label
+        
+        # Define valid target labels
+        self.valid_targets = {
+            "Profusion": "Profusion Label",
+            "TBA/TBU": "TBA/TBU Label",
+            "Profusion or TBA/TBU": "Profusion or TBA/TBU Label",
+            "Profusion and TBA/TBU": "Profusion and TBA/TBU Label"
+        }
+        
+        if target_label not in self.valid_targets:
+            raise ValueError(f"Invalid target_label. Must be one of {list(self.valid_targets.keys())}")
+            
+        # Pre-compute all labels
+        self._assign_labels()
+    
+    def _assign_labels(self):
+        for idx in range(len(self.metadata_df)):
+            prof_label = self.metadata_df.iloc[idx]['Profusion']
+            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
+            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
+            
+            tba_1_bool = helpers.contains_tba_or_tbu(tba_1)
+            tba_2_bool = helpers.contains_tba_or_tbu(tba_2)
+            
+            # Profusion Label
+            self.metadata_df.loc[idx, 'Profusion Label'] = 1 if prof_label in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3'] else 0
+            
+            # TBA/TBU Label
+            self.metadata_df.loc[idx, 'TBA/TBU Label'] = 1 if (tba_1_bool or tba_2_bool) else 0
+            
+            # Profusion or TBA/TBU Label
+            prof_positive = prof_label in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']
+            self.metadata_df.loc[idx, 'Profusion or TBA/TBU Label'] = 1 if (prof_positive or tba_1_bool or tba_2_bool) else 0
+            
+            # Profusion and TBA/TBU Label
+            self.metadata_df.loc[idx, 'Profusion and TBA/TBU Label'] = 1 if (prof_positive and (tba_1_bool or tba_2_bool)) else 0
 
     def __len__(self):
         return len(self.metadata_df)
 
-
     def __getitem__(self, idx):
         dicom_filename = self.metadata_df.iloc[idx]['(0020,000d) UI Study Instance UID']
-
-        if (self.target_label == "Profusion"):
-            profusion = self.metadata_df.iloc[idx]['Profusion']
-
-            if profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']:
-                target = 1
-            else:
-                target = 0
-
-        elif(self.target_label == "TBA/TBU"):
-            
-            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
-            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
-
-            # Check if 'tba' or 'tbu' is in tba_1 or tba_2
-            contains_tba_or_tbu_1 = 'tba' in tba_1 or 'tbu' in tba_1
-            contains_tba_or_tbu_2 = 'tba' in tba_2 or 'tbu' in tba_2
-
-            # Example usage
-            if contains_tba_or_tbu_1 or contains_tba_or_tbu_2:
-                target = 1
-            else:
-                target = 0
-
-        elif(self.target_label == "Profusion Or TBA/TBU"):
-            profusion = self.metadata_df.iloc[idx]['Profusion']
-            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
-            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
-
-            # Check if 'tba' or 'tbu' is in tba_1 or tba_2
-            contains_tba_or_tbu_1 = 'tba' in tba_1 or 'tbu' in tba_1
-            contains_tba_or_tbu_2 = 'tba' in tba_2 or 'tbu' in tba_2
-
-            # Example usage
-            if (profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']) or contains_tba_or_tbu_1 or contains_tba_or_tbu_2:
-                target = 1
-            else:
-                target = 0
-        
-        elif (self.target_label == "Profusion and TBA/TBU"):
-            profusion = self.metadata_df.iloc[idx]['Profusion']
-            tba_1 = self.metadata_df.iloc[idx]['strFindingsSimplified1']
-            tba_2 = self.metadata_df.iloc[idx]['strFindingsSimplified2']
-
-            contains_tba_or_tbu_1 = 'tba' in tba_1 or 'tbu' in tba_1
-            contains_tba_or_tbu_2 = 'tba' in tba_2 or 'tbu' in tba_2
-
-            if (profusion in ['1/1', '1/2', '2/1', '2/2', '2/3', '3/2', '3/3']) and (contains_tba_or_tbu_1 or contains_tba_or_tbu_2):
-                target = 1
-            else:
-                target = 0
-        else:
-            print("Target not recognized")
-
         dicom_file = os.path.join(self.dicom_dir, dicom_filename + '.dcm')
 
-        pixel_tensor, pixel_array = read_and_normalize_xray(dicom_file, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True)
+        # Process image
+        pixel_tensor, pixel_array = helpers.read_and_normalize_xray(dicom_file, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True)
         resize_transform = transforms.Compose([xrv.datasets.XRayResizer(self.target_size)])
-
+        
         pixel_tensor = resize_transform(pixel_tensor.numpy())
         pixel_tensor = pixel_tensor.squeeze(0)
         pixel_tensor = transforms.ToTensor()(pixel_tensor)
 
-        # Return the processed image and label information
+        # Get target based on target_label
+        target = int(self.metadata_df.iloc[idx][self.valid_targets[self.target_label]])
+
         return pixel_tensor, target
-    
     
 class DICOMDataset2(Dataset):
     def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224, target_label=None):
@@ -105,50 +87,56 @@ class DICOMDataset2(Dataset):
         self.transform = transform
         self.target_size = target_size
         self.target_label = target_label
+        
+        # Define valid target labels
+        self.valid_targets = {
+            "Profusion": "Profusion Label",
+            "TBA/TBU": "TBA/TBU Label",
+            "Profusion or TBA/TBU": "Profusion or TBA/TBU Label",
+            "Profusion and TBA/TBU": "Profusion and TBA/TBU Label"
+        }
+        
+        if target_label not in self.valid_targets:
+            raise ValueError(f"Invalid target_label. Must be one of {list(self.valid_targets.keys())}")
+            
+        # Pre-compute all labels
+        self._assign_labels()
+    
+    def _assign_labels(self):
+        for idx in range(len(self.metadata_df)):
+            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
+            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
+            
+            # Profusion Label
+            self.metadata_df.loc[idx, 'Profusion Label'] = 1 if profusion else 0
+            
+            # TBA/TBU Label
+            self.metadata_df.loc[idx, 'TBA/TBU Label'] = 1 if tba else 0
+            
+            # Profusion or TBA/TBU Label
+            self.metadata_df.loc[idx, 'Profusion or TBA/TBU Label'] = 1 if (profusion or tba) else 0
+            
+            # Profusion and TBA/TBU Label
+            self.metadata_df.loc[idx, 'Profusion and TBA/TBU Label'] = 1 if (profusion and tba) else 0
 
     def __len__(self):
         return len(self.metadata_df)
 
-
     def __getitem__(self, idx):
-
         dicom_filename = self.metadata_df.iloc[idx]['Anonymized Filename']
+        dicom_file = os.path.join(self.dicom_dir, dicom_filename)
 
-        if (self.target_label == "Profusion"):
-            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
-
-            target = 1 if profusion else 0
-
-        elif(self.target_label == "TBA/TBU"):
-            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
-
-            target = 1 if tba else 0
-
-        elif(self.target_label == "Profusion Or TBA/TBU"):
-
-            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
-            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
-
-            target = 1 if (profusion or tba) else 0
-        
-        elif(self.target_label == "Profusion and TBA/TBU"):
-
-            profusion = self.metadata_df.iloc[idx]['Radiologist: Silicosis (Profusion ≥ 1/1)']
-            tba = self.metadata_df.iloc[idx]['Radiologist: TB (TBA or TBU)']
-
-            target = 1 if (profusion and tba) else 0
-
-        dicom_file = os.path.join(self.dicom_dir, dicom_filename) # remove .dcm for D2
-
-        pixel_tensor, pixel_array = read_and_normalize_xray(dicom_file, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True)
-
+        # Process image
+        pixel_tensor, pixel_array = helpers.read_and_normalize_xray(dicom_file, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True)
         resize_transform = transforms.Compose([xrv.datasets.XRayResizer(self.target_size)])
-
+        
         pixel_tensor = resize_transform(pixel_tensor.numpy())
         pixel_tensor = pixel_tensor.squeeze(0)
         pixel_tensor = transforms.ToTensor()(pixel_tensor)
 
-        # Return the processed image and label information
+        # Get target based on target_label
+        target = int(self.metadata_df.iloc[idx][self.valid_targets[self.target_label]])
+
         return pixel_tensor, target
     
 class AugmentedDataset(Dataset):

@@ -23,7 +23,8 @@ import time
 
 
 from helpers import read_and_normalize_xray, split_with_indices, create_dataloaders
-from classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier1
+from classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier
+
 def train_model(train_loader, val_loader, model, n_epochs, lr, device):
     """Function to train a model on a given training dataloader."""
     
@@ -148,10 +149,10 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device):
         })
 
         # Print results per epoch
-        print(f"Epoch [{epoch+1}/{n_epochs}] - Training Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%, "
+        print(f"Epoch [{epoch+1}/{n_epochs}] - Training Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}, "
               f"Training Precision: {epoch_precision:.4f}, Training Recall: {epoch_recall:.4f}, Training F1: {epoch_f1:.4f}")
 
-        print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}%, "
+        print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
               f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}")
 
     end_time = time.time()  # End timing
