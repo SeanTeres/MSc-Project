@@ -17,24 +17,28 @@ import torch.nn as nn
 import helpers
 
 class DICOMDataset1(Dataset):
-    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224, target_label=None):
+    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224):
         self.dicom_dir = dicom_dir
         self.metadata_df = metadata_df
         self.transform = transform
         self.target_size = target_size
-        self.target_label = target_label
+        self.target_label = None
         
         # Define valid target labels
         self.valid_targets = {
             "Profusion": "Profusion Label",
             "TBA-TBU": "TBA-TBU Label",
             "Profusion or TBA-TBU": "Profusion or TBA-TBU Label",
-            "Profusion and TBA-TBU": "Profusion and TBA-TBU Label"
+            "Profusion and TBA-TBU": "Profusion and TBA-TBU Label",
         }
-        
+    
+    def set_target(self, target_label, target_size):
         if target_label not in self.valid_targets:
             raise ValueError(f"Invalid target_label. Must be one of {list(self.valid_targets.keys())}")
-            
+        
+        self.target_label = target_label
+        self.target_size = target_size
+        
         # Pre-compute all labels
         self._assign_labels()
     
@@ -79,14 +83,14 @@ class DICOMDataset1(Dataset):
         target = int(self.metadata_df.iloc[idx][self.valid_targets[self.target_label]])
 
         return pixel_tensor, target
-    
+
 class DICOMDataset2(Dataset):
-    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224, target_label=None):
+    def __init__(self, dicom_dir, metadata_df, transform=None, target_size=224):
         self.dicom_dir = dicom_dir
         self.metadata_df = metadata_df
         self.transform = transform
         self.target_size = target_size
-        self.target_label = target_label
+        self.target_label = None
         
         # Define valid target labels
         self.valid_targets = {
@@ -95,10 +99,14 @@ class DICOMDataset2(Dataset):
             "Profusion or TBA-TBU": "Profusion or TBA-TBU Label",
             "Profusion and TBA-TBU": "Profusion and TBA-TBU Label"
         }
-        
+    
+    def set_target(self, target_label, target_size):
         if target_label not in self.valid_targets:
             raise ValueError(f"Invalid target_label. Must be one of {list(self.valid_targets.keys())}")
-            
+        
+        self.target_label = target_label
+        self.target_size = target_size
+        
         # Pre-compute all labels
         self._assign_labels()
     
