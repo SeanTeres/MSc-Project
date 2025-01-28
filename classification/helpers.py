@@ -63,6 +63,13 @@ def split_with_indices(dataset_class, train_size, to_augment=False):
 
     return train_dataset, val_dataset, test_dataset
 
+def split_dataset(dataset, train_size=0.7, random_state=42):
+    """Split dataset into train, validation, and test sets with fixed indices."""
+    indices = list(range(len(dataset)))
+    train_indices, test_indices = train_test_split(indices, test_size=1-train_size, random_state=random_state)
+    val_indices, test_indices = train_test_split(test_indices, test_size=0.5, random_state=random_state)
+    
+    return train_indices, val_indices, test_indices
 
 def create_dataloaders(train, aug_train, val, test, batch_size, oversam=False):
     """Function to create dataloaders with optional oversampling."""
