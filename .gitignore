@@ -7,4 +7,3 @@ cyclegan.py
 discriminator.py
 generator.py
 config.yaml
-classification/__pycache__/
