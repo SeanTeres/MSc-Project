@@ -67,8 +67,18 @@ metadata_1 = pd.read_excel('MBOD_Datasets/Dataset 1/FileDatabaseWithRadiology.xl
 dicom_dir_2 = 'MBOD_Datasets/Dataset 2'
 metadata_2 = pd.read_excel('MBOD_Datasets/Dataset 2/Database_Training-2024.08.28.xlsx')
 
-d1_prof = classes.DICOMDataset1(dicom_dir=dicom_dir_1, metadata_df=metadata_1, target_size=224, target_label='Profusion')
-d2_prof = classes.DICOMDataset2(dicom_dir=dicom_dir_2, metadata_df=metadata_2, target_size=224, target_label='Profusion')
+d1 = classes.DICOMDataset1(dicom_dir=dicom_dir_1, metadata_df=metadata_1, target_size=224) 
+d2 = classes.DICOMDataset2(dicom_dir=dicom_dir_2, metadata_df=metadata_2, target_size=224)
+
+# Split datasets and store indices
+train_indices_d1, val_indices_d1, test_indices_d1 = helpers.split_dataset(d1)
+train_indices_d2, val_indices_d2, test_indices_d2 = helpers.split_dataset(d2)
+
+# Save indices for later use
+split_indices = {
+    'd1': {'train': train_indices_d1, 'val': val_indices_d1, 'test': test_indices_d1},
+    'd2': {'train': train_indices_d2, 'val': val_indices_d2, 'test': test_indices_d2}
+}
 
 # Plot distributions for Dataset 1
 # print(f"Dataset 1 Distributions:")
@@ -78,12 +88,5 @@ d2_prof = classes.DICOMDataset2(dicom_dir=dicom_dir_2, metadata_df=metadata_2, t
 # print("\nDataset 2 Distributions:")
 # plot_all_label_distributions(d2_prof.metadata_df, "MBOD 2")
 
-train_d1, val_d1, test_d1 = helpers.split_with_indices(d2_prof, 0.7)
 
-train_labels_d1 = d2_prof.metadata_df.loc[train_d1.indices, 'Profusion Label']
-
-sample_weights_d1 = helpers.calculate_sample_weights(train_labels_d1)
-
-print(f"Sample Weights for Dataset 2 (Profusion): {np.unique(sample_weights_d1)}")
-print(d2_prof.metadata_df['Profusion Label'].value_counts())
 
