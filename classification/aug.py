@@ -1,9 +1,9 @@
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset, ConcatDataset, WeightedRandomSampler
-import torchvision.transforms as transforms
+from torch.utils.data import Dataset, ConcatDataset, WeightedRandomSampler, Subset, DataLoader
 import os
 import torchxrayvision as xrv
+import torchvision.transforms as transforms
 from skimage.color import rgb2gray
 from skimage.transform import resize
 import pydicom
@@ -16,13 +16,20 @@ import seaborn as sns
 from sklearn.metrics import precision_score, recall_score, f1_score, cohen_kappa_score, classification_report, confusion_matrix
 import helpers, train_utils, classes
 from collections import Counter
+import torch
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+from PIL import Image
+import torch.nn as nn
+import torch.optim as optim
+
 
 def plot_all_label_distributions(df, dataset_name):
     label_columns = [
         'Profusion Label',
-        'TBA/TBU Label', 
-        'Profusion or TBA/TBU Label',
-        'Profusion and TBA/TBU Label'
+        'TBA-TBU Label', 
+        'Profusion or TBA-TBU Label',
+        'Profusion and TBA-TBU Label'
     ]
     colors = ['#ff9999', '#66b3ff']
     
@@ -80,13 +87,82 @@ split_indices = {
     'd2': {'train': train_indices_d2, 'val': val_indices_d2, 'test': test_indices_d2}
 }
 
+label = 'Profusion and TBA-TBU'
+d1.set_target(target_label=label, target_size=224)
+d2.set_target(target_label=label, target_size=224)
+
+train_d1 = Subset(d1, train_indices_d1)
+val_d1 = Subset(d1, val_indices_d1)
+test_d1 = Subset(d1, test_indices_d1)
+
+train_d2 = Subset(d2, train_indices_d2)
+val_d2 = Subset(d2, val_indices_d2)
+test_d2 = Subset(d2, test_indices_d2)
+
+def create_weighted_sampler(dataset, target_label):
+    # Calculate class weights
+    class_counts = np.bincount([label for _, label in dataset])
+    class_weights = 1. / class_counts
+    sample_weights = [class_weights[label] for _, label in dataset]
+
+    # Create a weighted sampler
+    sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
+    return sampler
+
+# Create the base datasets
+train_d1 = Subset(d1, train_indices_d1)
+train_d2 = Subset(d2, train_indices_d2)
+
+# Define augmentations
+augmentations_list = [
+    transforms.RandomHorizontalFlip(p=1.0),
+    transforms.RandomRotation(15),
+    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
+]
+
+# Create augmented datasets
+augmented_train_d1 = classes.AugmentedDataset(base_dataset=train_d1, augmentations_list=augmentations_list)
+augmented_train_d2 = classes.AugmentedDataset(base_dataset=train_d2, augmentations_list=augmentations_list)
+
+    # Create dataloaders
+train_loader_d1, train_aug_loader_d1, val_loader_d1, test_loader_d1 = helpers.create_dataloaders(
+    train_d1, augmented_train_d1, val_d1, test_d1, batch_size=32, oversam=True, target=label
+)
+
+train_loader_d2, train_aug_loader_d2, val_loader_d2, test_loader_d2 = helpers.create_dataloaders(
+    train_d2, augmented_train_d2, val_d2, test_d2, batch_size=32, oversam=True, target=label
+)
+
+
+
 # Plot distributions for Dataset 1
 # print(f"Dataset 1 Distributions:")
-# plot_all_label_distributions(d1_prof.metadata_df, "MBOD 1")
+# plot_all_label_distributions(d1.metadata_df, "MBOD 1")
 
 # Plot distributions for Dataset 2
 # print("\nDataset 2 Distributions:")
-# plot_all_label_distributions(d2_prof.metadata_df, "MBOD 2")
+# plot_all_label_distributions(d2.metadata_df, "MBOD 2")
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+ae = xrv.autoencoders.ResNetAE(weights="101-elastic").to(device)
+
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor()
+])
+
+mc_folder = 'C:/Users/user-pc/Masters/MSc - Project/Intl_Datasets/MC-png'
+sz_folder = 'C:/Users/user-pc/Masters/MSc - Project/Intl_Datasets/SZ-png'
+
+mc_dataset = classes.PNGDataset(mc_folder, transform=transform)
+sz_dataset = classes.PNGDataset(sz_folder, transform=transform)
 
 
+mc_loader = DataLoader(mc_dataset, batch_size=32, shuffle=False)
+sz_loader = DataLoader(sz_dataset, batch_size=32, shuffle=False)
 
+
+x = DataLoader(train_d1, batch_size=32, shuffle=False)
+y = DataLoader(augmented_train_d1, batch_size=32, shuffle=False)
+
+print(len(x), len(y))

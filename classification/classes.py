@@ -171,6 +171,10 @@ class AugmentedDataset(Dataset):
             augmentation = self.augmentations_list[augment_idx - 1]
             pixel_tensor = augmentation(pixel_tensor)
 
+        pixel_tensor = (pixel_tensor - pixel_tensor.min()) / (pixel_tensor.max() - pixel_tensor.min())
+        # Rescale to [-1024, 1024] if needed for xrv models
+        pixel_tensor = pixel_tensor * (1024 - (-1024)) + (-1024)
+
         return pixel_tensor, label
 
 
@@ -180,7 +184,7 @@ class BaseClassifier(nn.Module):
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(in_features, 512)  # Input size is 1024
         self.fc2 = nn.Linear(512, 256)            # Additional hidden layer
-        self.fc3 = nn.Linear(256, 2)
+        self.fc3 = nn.Linear(256, 1)
 
     def forward(self, x):
         x = self.flatten(x)  # Flatten the input
@@ -188,3 +192,44 @@ class BaseClassifier(nn.Module):
         x = F.relu(self.fc2(x))  # Second hidden layer
         x = self.fc3(x)  # Output layer
         return x
+    
+class BaseClassifierWithDropout(nn.Module):
+    def __init__(self, in_features, dropout_rate=0.5):
+        super(BaseClassifierWithDropout, self).__init__()
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(in_features, 512)  # Input size is 1024
+        self.dropout1 = nn.Dropout(dropout_rate)
+        self.fc2 = nn.Linear(512, 256)  # Additional hidden layer
+        self.dropout2 = nn.Dropout(dropout_rate)
+        self.fc3 = nn.Linear(256, 1)
+
+    def forward(self, x):
+        x = self.flatten(x)  # Flatten the input
+        x = F.relu(self.fc1(x))  # First hidden layer
+        x = self.dropout1(x)
+        x = F.relu(self.fc2(x))  # Second hidden layer
+        x = self.dropout2(x)
+        x = self.fc3(x)  # Output layer
+        return x
+    
+class PNGDataset(Dataset):
+    def __init__(self, image_dir, transform=None):
+        self.image_dir = image_dir
+        self.transform = transform
+        self.image_paths = [os.path.join(image_dir, fname) for fname in os.listdir(image_dir) if fname.endswith('.png')]
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        image_path = self.image_paths[idx]
+        image = Image.open(image_path).convert('L')  # Convert to grayscale
+        if self.transform:
+            image = self.transform(image)
+        
+        
+        label = image_path[len(image_path) - 5]
+        image = (image - image.min()) / (image.max() - image.min())
+        # Rescale to [-1024, 1024] if needed for xrv models
+        image = image * (1024 - (-1024)) + (-1024)
+        return image, label

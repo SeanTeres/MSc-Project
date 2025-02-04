@@ -16,6 +16,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from collections import Counter
 import classes
+from tqdm import tqdm
 
 def read_and_normalize_xray(dicom_name, voi_lut=False, fix_monochrome=True, transforms=None, normalize=True):
     """Reads a DICOM file, normalizes it, and returns the tensor and pixel array."""
@@ -71,30 +72,34 @@ def split_dataset(dataset, train_size=0.7, random_state=42):
     
     return train_indices, val_indices, test_indices
 
-def create_dataloaders(train, aug_train, val, test, batch_size, oversam=False):
-    """Function to create dataloaders with optional oversampling."""
+def create_dataloaders(train, aug_train, val, test, batch_size, target, oversam=False):
+    """Function to create dataloaders with optional oversampling.
+    target: full string of label."""
+    # print("Creating dataloaders with optional oversampling...")
+    # print(f"LENGTHS: {len(train), len(aug_train)}")
     if oversam:
         # Calculate weights for training set
-        train_labels = train.dataset.metadata_df.loc[train.indices, 'Profusion Label']
+        train_labels = train.dataset.metadata_df.loc[train.indices, target + ' Label']
         sample_weights = calculate_sample_weights(train_labels)
         sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
-        
-        # Create training loader with sampler
+        print(f"Sampler: {sampler}")
+        # Create training loaders with sampler
         train_loader = DataLoader(train, batch_size=batch_size, sampler=sampler)
-        aug_train_loader = DataLoader(aug_train, batch_size=batch_size, sampler=sampler)
+        aug_train_loader = DataLoader(aug_train, batch_size=batch_size)
     else:
         train_loader = DataLoader(train, batch_size=batch_size, shuffle=True)
+        aug_train_loader = DataLoader(aug_train, batch_size=batch_size, shuffle=True)
     
     # Other loaders remain the same
-    aug_train_loader = DataLoader(aug_train, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test, batch_size=batch_size, shuffle=False)
+    # print(f"LENGTHS: {len(train_loader), len(aug_train_loader)}")
     
     return train_loader, aug_train_loader, val_loader, test_loader
 
-def read_data(d1, d2):
-    train_d1, val_d1, test_d1 = split_with_indices(d1, 0.7)
-    train_d2, val_d2, test_d2 = split_with_indices(d2, 0.7)
+def read_data(d1, d2, train_size):
+    train_d1, val_d1, test_d1 = split_with_indices(d1, train_size=train_size)
+    train_d2, val_d2, test_d2 = split_with_indices(d2, train_size=train_size)
 
     # Define augmentations as individual transforms
     augmentations_list = [
@@ -191,7 +196,6 @@ def calculate_sample_weights(labels):
 
 def calc_label_dist(dataset, subset, disease_label):
     """Calculates label distribution for a dataset or subset at specified disease label."""
-    
     if len(dataset) == len(subset):
         # Full dataset case
         labels = dataset.metadata_df[disease_label]
@@ -199,5 +203,17 @@ def calc_label_dist(dataset, subset, disease_label):
         # Subset case
         labels = dataset.metadata_df.loc[subset.indices, disease_label]
     
+    # Convert labels to integers
+    labels = labels.astype(int)
+    
     return Counter(labels)
+
+from tqdm import tqdm
+
+def extract_pixel_intensities(dataloader):
+    pixel_intensities = []
+    for images, _ in tqdm(dataloader, desc="Extracting pixel intensities"):
+        for image in images:
+            pixel_intensities.extend(image.numpy().flatten())
+    return pixel_intensities
 
