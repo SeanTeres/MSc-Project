@@ -165,4 +165,4 @@ sz_loader = DataLoader(sz_dataset, batch_size=32, shuffle=False)
 x = DataLoader(train_d1, batch_size=32, shuffle=False)
 y = DataLoader(augmented_train_d1, batch_size=32, shuffle=False)
 
-print(len(x), len(y))
+print(f"Length of dataset: {len(val_d1)}")
