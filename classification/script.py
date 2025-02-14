@@ -110,17 +110,6 @@ for experiment_name, experiment in config['experiments'].items():
         sampler_d2 = None
 
 
-    # Select the appropriate dataloaders based on the augmentation flag
-    if experiment['augmentation']:
-        print("We are using augmentations for training. \n")
-        print(f"Batches before: {len(train_loader_d1) % 32}")
-        print(f"Batches after: {len(train_aug_loader_d1) % 32}")
-        selected_train_loader_d1 = train_aug_loader_d1
-        selected_train_loader_d2 = train_aug_loader_d2
-    else:
-        selected_train_loader_d1 = train_loader_d1
-        selected_train_loader_d2 = train_loader_d2
-
     # Print label distribution
     print("Label distribution for training set (D1):", helpers.calc_label_dist(d1, train_loader_d1.dataset, target_label + ' Label'))
     print("Label distribution for validation set (D1):", helpers.calc_label_dist(d1, val_loader_d1.dataset, target_label + ' Label'))
@@ -152,7 +141,7 @@ for experiment_name, experiment in config['experiments'].items():
             else:
                 pos_weight = torch.tensor([1.0])
             
-            model = train_utils.train_model(selected_train_loader_d1, val_loader_d1, model, n_epochs, lr, device, pos_weight=pos_weight)
+            model = train_utils.train_model(train_loader_d1, val_loader_d1, model, n_epochs, lr, device, pos_weight=pos_weight)
 
 
         elif (loss_function == "FocalLoss"):
@@ -161,7 +150,7 @@ for experiment_name, experiment in config['experiments'].items():
             print(f"Focal Loss with alpha = {alpha_d1} ---- dataset {train_dataset}")
 
 
-            model = train_utils.train_model_with_focal_loss(selected_train_loader_d1, val_loader_d1, model, n_epochs, lr, device, alpha=alpha_d1, gamma=2)
+            model = train_utils.train_model_with_focal_loss(train_loader_d1, val_loader_d1, model, n_epochs, lr, device, alpha=alpha_d1, gamma=2)
             
         else:
             print("ERR: Loss function must be CrossEntropyLoss or FocalLoss.")
@@ -179,7 +168,7 @@ for experiment_name, experiment in config['experiments'].items():
             else:
                 pos_weight = torch.tensor([1.0])
 
-            model = train_utils.train_model(selected_train_loader_d2, val_loader_d2, model, n_epochs, lr, device, pos_weight=pos_weight)
+            model = train_utils.train_model(train_loader_d2, val_loader_d2, model, n_epochs, lr, device, pos_weight=pos_weight)
             
 
 
@@ -188,7 +177,7 @@ for experiment_name, experiment in config['experiments'].items():
             print(f"Focal Loss with alpha = {alpha_d2} ---- dataset {train_dataset}")
 
 
-            model = train_utils.train_model_with_focal_loss(test_loader_d2, val_loader_d2, model, n_epochs, lr, device, alpha=alpha_d2, gamma=2)
+            model = train_utils.train_model_with_focal_loss(train_loader_d2, val_loader_d2, model, n_epochs, lr, device, alpha=alpha_d2, gamma=2)
     else:
         print("ERR: Unrecognized dataset name.")
 
