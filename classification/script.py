@@ -29,7 +29,7 @@ metadata_1 = pd.read_excel('MBOD_Datasets/Dataset 1/FileDatabaseWithRadiology.xl
 dicom_dir_2 = 'MBOD_Datasets/Dataset 2'
 metadata_2 = pd.read_excel('MBOD_Datasets/Dataset 2/Database_Training-2024.08.28.xlsx')
 
-target_label = 'Profusion'
+target_label = 'Profusion and TBA-TBU'
 model_resolution = 224
 
 # Initialize datasets
@@ -87,11 +87,11 @@ for experiment_name, experiment in config['experiments'].items():
 
     # Create dataloaders
     train_loader_d1, train_aug_loader_d1, val_loader_d1, test_loader_d1 = helpers.create_dataloaders(
-        train_d1, augmented_train_d1, val_d1, test_d1, experiment['batch_size'], oversam=experiment['oversampling'], target=target_label
+        train_d1, augmented_train_d1, val_d1, test_d1, experiment['batch_size'], target=target_label
     )
 
     train_loader_d2, train_aug_loader_d2, val_loader_d2, test_loader_d2 = helpers.create_dataloaders(
-        train_d2, augmented_train_d2, val_d2, test_d2, experiment['batch_size'], oversam=experiment['oversampling'], target=target_label
+        train_d2, augmented_train_d2, val_d2, test_d2, experiment['batch_size'], target=target_label
     )
 
     
@@ -132,7 +132,7 @@ for experiment_name, experiment in config['experiments'].items():
 
     # Initialize wandb
     wandb.login()
-    wandb.init(project='MBOD-2', name=experiment_name)
+    wandb.init(project='MBOD-3', name=experiment_name)
     wandb.config.update(experiment)
 
     in_features = 1024  # Based on the output of model.features2()
@@ -145,10 +145,23 @@ for experiment_name, experiment in config['experiments'].items():
         print("Training on Dataset 1\n")
 
         if(loss_function == "CrossEntropyLoss"):
-            model = train_utils.train_model(selected_train_loader_d1, val_loader_d1, model, n_epochs, lr, device)
+            if(oversampling):
+                pos_weight = helpers.compute_pos_weight(train_d1, target_label + ' Label')
+
+                print(f"Oversampling with pos_weight = {pos_weight} ---- dataset {train_dataset}")
+            else:
+                pos_weight = torch.tensor([1.0])
+            
+            model = train_utils.train_model(selected_train_loader_d1, val_loader_d1, model, n_epochs, lr, device, pos_weight=pos_weight)
+
 
         elif (loss_function == "FocalLoss"):
-            model = train_utils.train_model_with_focal_loss(selected_train_loader_d1, val_loader_d1, model, n_epochs, lr, device, alpha=0.25, gamma=1)
+
+            alpha_d1 = helpers.get_alpha_FLoss(train_d1, target_label + ' Label')
+            print(f"Focal Loss with alpha = {alpha_d1} ---- dataset {train_dataset}")
+
+
+            model = train_utils.train_model_with_focal_loss(selected_train_loader_d1, val_loader_d1, model, n_epochs, lr, device, alpha=alpha_d1, gamma=2)
             
         else:
             print("ERR: Loss function must be CrossEntropyLoss or FocalLoss.")
@@ -157,10 +170,25 @@ for experiment_name, experiment in config['experiments'].items():
         print("Training on Dataset 2\n")
 
         if(loss_function == "CrossEntropyLoss"):
-            model = train_utils.train_model(selected_train_loader_d2, val_loader_d2, model, n_epochs, lr, device)
+
+            if(oversampling):
+                pos_weight = helpers.compute_pos_weight(train_d2, target_label + ' Label')
+
+                print(f"Oversampling with pos_weight = {pos_weight} ---- dataset {train_dataset}")
+
+            else:
+                pos_weight = torch.tensor([1.0])
+
+            model = train_utils.train_model(selected_train_loader_d2, val_loader_d2, model, n_epochs, lr, device, pos_weight=pos_weight)
+            
+
 
         elif(loss_function == "FocalLoss"):
-            model = train_utils.train_model_with_focal_loss(selected_train_loader_d2, val_loader_d2, model, n_epochs, lr, device, alpha=0.25, gamma=1)
+            alpha_d2 = helpers.get_alpha_FLoss(train_d2, target_label + ' Label')
+            print(f"Focal Loss with alpha = {alpha_d2} ---- dataset {train_dataset}")
+
+
+            model = train_utils.train_model_with_focal_loss(test_loader_d2, val_loader_d2, model, n_epochs, lr, device, alpha=alpha_d2, gamma=2)
     else:
         print("ERR: Unrecognized dataset name.")
 
@@ -174,7 +202,7 @@ for experiment_name, experiment in config['experiments'].items():
     report_d2 = classification_report(test_labels_d2, test_preds_d2)
     cm_d2 = confusion_matrix(test_labels_d2, test_preds_d2)
 
-    print(f"Classification Report ({experiment_name}- MBOD 1)):")
+    print(f"Classification Report ({experiment_name}- MBOD 1):")
     print(report_d1)
 
     print(f"Confusion Matrix ({experiment_name}- MBOD 1):")

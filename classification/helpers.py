@@ -72,28 +72,19 @@ def split_dataset(dataset, train_size=0.7, random_state=42):
     
     return train_indices, val_indices, test_indices
 
-def create_dataloaders(train, aug_train, val, test, batch_size, target, oversam=False):
+def create_dataloaders(train, aug_train, val, test, batch_size, target):
     """Function to create dataloaders with optional oversampling.
     target: full string of label."""
     # print("Creating dataloaders with optional oversampling...")
-    # print(f"LENGTHS: {len(train), len(aug_train)}")
-    if oversam:
-        # Calculate weights for training set
-        train_labels = train.dataset.metadata_df.loc[train.indices, target + ' Label']
-        sample_weights = calculate_sample_weights(train_labels)
-        sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
-        print(f"Sampler: {sampler}")
-        # Create training loaders with sampler
-        train_loader = DataLoader(train, batch_size=batch_size, sampler=sampler)
-        aug_train_loader = DataLoader(aug_train, batch_size=batch_size)
-    else:
-        train_loader = DataLoader(train, batch_size=batch_size, shuffle=True)
-        aug_train_loader = DataLoader(aug_train, batch_size=batch_size, shuffle=True)
+    print(f"LENGTHS: {len(train), len(aug_train)}")
+
+    train_loader = DataLoader(train, batch_size=batch_size, shuffle=True)
+    aug_train_loader = DataLoader(aug_train, batch_size=batch_size, shuffle=True)
     
     # Other loaders remain the same
     val_loader = DataLoader(val, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test, batch_size=batch_size, shuffle=False)
-    # print(f"LENGTHS: {len(train_loader), len(aug_train_loader)}")
+    print(f"LENGTHS: {len(train_loader), len(aug_train_loader)}")
     
     return train_loader, aug_train_loader, val_loader, test_loader
 
@@ -216,4 +207,43 @@ def extract_pixel_intensities(dataloader):
         for image in images:
             pixel_intensities.extend(image.numpy().flatten())
     return pixel_intensities
+
+import numpy as np
+
+def get_alpha_FLoss(train, target_label):
+    """
+    Compute a single alpha value for binary focal loss.
+    
+    """
+    class_counts = train.dataset.metadata_df[target_label].value_counts()
+    class_counts = class_counts.sort_index()
+
+    # Ensure class counts exist
+    if len(class_counts) < 2:
+        raise ValueError("Dataset must contain both positive (1) and negative (0) samples.")
+
+    minority = class_counts[0]  # Assuming class 0 is the minority
+    majority = class_counts[1]  # Assuming class 1 is the majority
+
+    # Compute alpha as the proportion of the negative class
+    alpha = minority / (majority + minority)
+
+    return alpha
+
+
+def compute_pos_weight(train, target_label):
+    """Compute pos_weight for BCEWithLogitsLoss."""
+    class_counts = train.dataset.metadata_df[target_label].value_counts()
+    class_counts = class_counts.sort_index()
+
+    if len(class_counts) < 2:
+        raise ValueError("Dataset must contain both positive (1) and negative (0) samples.")
+
+    N_pos = class_counts[1]  # Positive class count
+    N_neg = class_counts[0]  # Negative class count
+
+    pos_weight = torch.tensor([ (N_neg + N_pos) / N_pos ], dtype=torch.float32)
+
+    return pos_weight
+
 

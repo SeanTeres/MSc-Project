@@ -26,7 +26,7 @@ import random
 from helpers import read_and_normalize_xray, split_with_indices, create_dataloaders
 from classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier
 class BinaryFocalLoss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2):
+    def __init__(self, alpha, gamma):
         super(BinaryFocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
@@ -37,12 +37,12 @@ class BinaryFocalLoss(nn.Module):
         F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
         return F_loss.mean()
 
-def train_model(train_loader, val_loader, model, n_epochs, lr, device):
+def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weight):
     """Function to train a model on a given training dataloader."""
     
     model = model.to(device)
 
-    criterion = nn.BCEWithLogitsLoss()  # Use BCEWithLogitsLoss for binary classification
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))  # Use BCEWithLogitsLoss for binary classification
     optim_1 = optim.Adam(model.parameters(), lr=lr)
 
     start_time = time.time()  # Start timing
@@ -91,7 +91,7 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device):
         # Log metrics every batch
 
             wandb.log({
-                "batch": idx + 1,
+                "batch": (idx + 1),
                 "batch_loss": loss.item(),
                 "batch_accuracy": batch_acc
             })
@@ -150,6 +150,8 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device):
         val_epoch_recall = recall_score(val_labels, val_preds, average='weighted')
         val_epoch_f1 = f1_score(val_labels, val_preds, average='weighted')
 
+        val_kappa = cohen_kappa_score(val_labels, val_preds)
+
         # Log validation metrics
         wandb.log({
             "epoch": epoch + 1,
@@ -157,7 +159,8 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device):
             "val_accuracy": val_epoch_acc,
             "val_precision": val_epoch_precision,
             "val_recall": val_epoch_recall,
-            "val_f1": val_epoch_f1
+            "val_f1": val_epoch_f1,
+            "val_kappa": val_kappa
         })
 
         # Print results per epoch
@@ -165,7 +168,7 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device):
               f"Training Precision: {epoch_precision:.4f}, Training Recall: {epoch_recall:.4f}, Training F1: {epoch_f1:.4f}")
 
         print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
-              f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}")
+              f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}, Validation Kappa: {val_kappa}")
 
     end_time = time.time()  # End timing
     total_time = end_time - start_time
@@ -285,6 +288,10 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
         val_epoch_precision = precision_score(val_labels, val_preds, average='weighted')
         val_epoch_recall = recall_score(val_labels, val_preds, average='weighted')
         val_epoch_f1 = f1_score(val_labels, val_preds, average='weighted')
+        val_kappa = cohen_kappa_score(val_labels, val_preds)
+
+        print(f"Labels: {val_labels}")
+        print(f"Predictions: {val_preds}")
 
         # Log validation metrics
         wandb.log({
@@ -293,7 +300,8 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
             "val_accuracy": val_epoch_acc,
             "val_precision": val_epoch_precision,
             "val_recall": val_epoch_recall,
-            "val_f1": val_epoch_f1
+            "val_f1": val_epoch_f1,
+            "val_kappa": val_kappa
         })
 
         # Print results per epoch
@@ -301,7 +309,8 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
               f"Training Precision: {epoch_precision:.4f}, Training Recall: {epoch_recall:.4f}, Training F1: {epoch_f1:.4f}")
 
         print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
-              f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}")
+              f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}, "
+              f"Validation Kappa: {val_kappa}")
 
     end_time = time.time()  # End timing
     total_time = end_time - start_time
@@ -351,6 +360,15 @@ def test_model(test_loader, model, device, test_dataset_name):
     test_recall = recall_score(test_labels, test_preds)
     test_f1 = f1_score(test_labels, test_preds)
     test_kappa = cohen_kappa_score(test_labels, test_preds)
+
+    # Log test metrics
+    wandb.log({
+        "test_accuracy": test_acc,
+        "test_precision": test_precision,
+        "test_recall": test_recall,
+        "test_f1": test_f1,
+        "test_kappa": test_kappa
+    })
 
     # Print test results
     print(f"Test Results for {test_dataset_name} - Loss: {test_loss:.4f}, Accuracy: {test_acc:.2f}, "
