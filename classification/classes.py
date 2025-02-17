@@ -82,6 +82,10 @@ class DICOMDataset1(Dataset):
         # Get target based on target_label
         target = int(self.metadata_df.iloc[idx][self.valid_targets[self.target_label]])
 
+        
+        if self.transform:
+            pixel_tensor = self.transform(pixel_tensor)
+
         return pixel_tensor, target
 
 class DICOMDataset2(Dataset):
@@ -144,6 +148,9 @@ class DICOMDataset2(Dataset):
 
         # Get target based on target_label
         target = int(self.metadata_df.iloc[idx][self.valid_targets[self.target_label]])
+
+        if self.transform:
+            pixel_tensor = self.transform(pixel_tensor)
 
         return pixel_tensor, target
     
