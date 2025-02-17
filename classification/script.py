@@ -29,15 +29,12 @@ metadata_1 = pd.read_excel('MBOD_Datasets/Dataset 1/FileDatabaseWithRadiology.xl
 dicom_dir_2 = 'MBOD_Datasets/Dataset 2'
 metadata_2 = pd.read_excel('MBOD_Datasets/Dataset 2/Database_Training-2024.08.28.xlsx')
 
-target_label = 'Profusion and TBA-TBU'
-model_resolution = 224
+# target_label = 'Profusion and TBA-TBU'
+# model_resolution = 224
 
 # Initialize datasets
 d1 = classes.DICOMDataset1(dicom_dir=dicom_dir_1, metadata_df=metadata_1)
 d2 = classes.DICOMDataset2(dicom_dir=dicom_dir_2, metadata_df=metadata_2)
-
-d1.set_target(target_label, model_resolution)
-d2.set_target(target_label, model_resolution)
 
 # Split datasets and store indices
 train_indices_d1, val_indices_d1, test_indices_d1 = helpers.split_dataset(d1)
@@ -49,25 +46,12 @@ split_indices = {
     'd2': {'train': train_indices_d2, 'val': val_indices_d2, 'test': test_indices_d2}
 }
 
-
-train_d1 = Subset(d1, train_indices_d1)
-val_d1 = Subset(d1, val_indices_d1)
-test_d1 = Subset(d1, test_indices_d1)
-
-train_d2 = Subset(d2, train_indices_d2)
-val_d2 = Subset(d2, val_indices_d2)
-test_d2 = Subset(d2, test_indices_d2)
-
 # Define augmentations
-augmentations_list = [
-    transforms.RandomHorizontalFlip(p=1.0),
-    transforms.RandomRotation(15),
-    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
-]
+augmentations_list = transforms.Compose([
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(10)
+])
 
-# Create augmented datasets
-augmented_train_d1 = classes.AugmentedDataset(base_dataset=train_d1, augmentations_list=augmentations_list)
-augmented_train_d2 = classes.AugmentedDataset(base_dataset=train_d2, augmentations_list=augmentations_list)
 
 for experiment_name, experiment in config['experiments'].items():
     print(f"Running experiment: {experiment_name}")
@@ -77,8 +61,33 @@ for experiment_name, experiment in config['experiments'].items():
     train_dataset = experiment['train_dataset']
     model = experiment['model']
     oversampling = experiment['oversampling']
-    model = xrv.models.DenseNet(weights="densenet121-res224-all")
     loss_function = experiment['loss_function']
+    augmentations = experiment['augmentation']
+    model_resolution = experiment['model_resolution']
+    target_label = experiment['target']
+
+    d1.set_target(target_label, model_resolution)
+    d2.set_target(target_label, model_resolution)
+    # Create augmented datasets
+    d1_aug = classes.DICOMDataset1(dicom_dir=dicom_dir_1, metadata_df=metadata_1, transform=augmentations_list)
+    d2_aug = classes.DICOMDataset2(dicom_dir=dicom_dir_2, metadata_df=metadata_2, transform=augmentations_list)
+
+    d1_aug.set_target(target_label, model_resolution)
+    d2_aug.set_target(target_label, model_resolution)
+
+    train_d1 = Subset(d1, train_indices_d1)
+    train_aug_d1 = Subset(d1_aug, train_indices_d1)
+
+    val_d1 = Subset(d1, val_indices_d1)
+    test_d1 = Subset(d1, test_indices_d1)
+
+    train_d2 = Subset(d2, train_indices_d2)
+    train_aug_d2 = Subset(d2_aug, train_indices_d2)
+
+    val_d2 = Subset(d2, val_indices_d2)
+    test_d2 = Subset(d2, test_indices_d2)
+
+    model = xrv.models.DenseNet(weights="densenet121-res224-all")
     model = model.to(device)
 
     in_features = 1024  # Based on the output of model.features2()
@@ -87,28 +96,12 @@ for experiment_name, experiment in config['experiments'].items():
 
     # Create dataloaders
     train_loader_d1, train_aug_loader_d1, val_loader_d1, test_loader_d1 = helpers.create_dataloaders(
-        train_d1, augmented_train_d1, val_d1, test_d1, experiment['batch_size'], target=target_label
+        train_d1, train_aug_d1, val_d1, test_d1, experiment['batch_size'], target=target_label
     )
 
     train_loader_d2, train_aug_loader_d2, val_loader_d2, test_loader_d2 = helpers.create_dataloaders(
-        train_d2, augmented_train_d2, val_d2, test_d2, experiment['batch_size'], target=target_label
-    )
-
-    
-    # Calculate sample weights for weighted random sampling
-    if oversampling:
-        train_labels_d1 = [d1.metadata_df.iloc[idx][target_label + ' Label'] for idx in train_indices_d1]
-        train_labels_d2 = [d2.metadata_df.iloc[idx][target_label + ' Label'] for idx in train_indices_d2]
-        
-        sample_weights_d1 = helpers.calculate_sample_weights(pd.Series(train_labels_d1))
-        sample_weights_d2 = helpers.calculate_sample_weights(pd.Series(train_labels_d2))
-        
-        sampler_d1 = WeightedRandomSampler(sample_weights_d1, len(train_d1))
-        sampler_d2 = WeightedRandomSampler(sample_weights_d2, len(train_d2))
-    else:
-        sampler_d1 = None
-        sampler_d2 = None
-
+        train_d2, train_aug_d2, val_d2, test_d2, experiment['batch_size'], target=target_label
+    )        
 
     # Print label distribution
     print("Label distribution for training set (D1):", helpers.calc_label_dist(d1, train_loader_d1.dataset, target_label + ' Label'))
@@ -121,7 +114,7 @@ for experiment_name, experiment in config['experiments'].items():
 
     # Initialize wandb
     wandb.login()
-    wandb.init(project='MBOD-3', name=experiment_name)
+    wandb.init(project='MBOD-4', name=experiment_name)
     wandb.config.update(experiment)
 
     in_features = 1024  # Based on the output of model.features2()
@@ -129,6 +122,15 @@ for experiment_name, experiment in config['experiments'].items():
 
     # Train and evaluate model
     test_labels_d1, test_labels_d2, test_preds_d1, test_preds_d2 = [], [], [], []
+
+    if augmentations:
+        print(f"ON THE FLY AUGMENTATION!")
+        train_loader_d1 = train_aug_loader_d1
+        train_loader_d2 = train_aug_loader_d2
+    else:
+        print(f"NO AUGMENTATION!")
+        train_loader_d1 = train_loader_d1
+        train_loader_d2 = train_loader_d2
 
     if train_dataset == "MBOD 1":
         print("Training on Dataset 1\n")
@@ -215,7 +217,7 @@ for experiment_name, experiment in config['experiments'].items():
     sns.heatmap(cm_d2, annot=True, fmt='d', cmap='Blues')
     plt.title(f"{experiment_name}) - MBOD 2")
 
-    plt.savefig(f"new_plots/conf_mat_{experiment_name}.png")
+    plt.savefig(f"v4_plots/conf_mat_{experiment_name}.png")
     wandb.log({f"cm-{experiment_name}": wandb.Image(plt)})
 
     wandb.finish()
