@@ -36,8 +36,7 @@ class BinaryFocalLoss(nn.Module):
         pt = torch.exp(-BCE_loss)
         F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
         return F_loss.mean()
-
-def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weight):
+def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weight, patience=3):
     """Function to train a model on a given training dataloader."""
     
     model = model.to(device)
@@ -46,6 +45,9 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
     optim_1 = optim.Adam(model.parameters(), lr=lr)
 
     start_time = time.time()  # Start timing
+
+    best_val_f1 = 0.0
+    epochs_since_improvement = 0
 
     for epoch in range(n_epochs):
         print(f'Epoch: {epoch+1}/{n_epochs}')
@@ -60,7 +62,7 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
 
         # Training Phase
         for idx, (imgs, labels) in enumerate(train_loader):
-            print(f"Batch: {idx+1}/{len(train_loader)}")
+            # print(f"Batch: {idx+1}/{len(train_loader)}")
             corr, tot = 0, 0
             imgs = imgs.to(device)
             labels = labels.to(device).float().unsqueeze(1)  # Ensure labels are float and match output size
@@ -170,13 +172,23 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
         print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
               f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}, Validation Kappa: {val_kappa}")
 
+        # Early stopping logic
+        if val_epoch_f1 > best_val_f1:
+            best_val_f1 = val_epoch_f1
+            epochs_since_improvement = 0
+        else:
+            epochs_since_improvement += 1
+
+        if epochs_since_improvement >= patience:
+            print(f"Early stopping triggered after {epoch+1} epochs.")
+            break
+
     end_time = time.time()  # End timing
     total_time = end_time - start_time
     print(f"Total training time: {total_time:.2f} seconds")
     return model
 
-
-def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, device, alpha, gamma):
+def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, device, alpha, gamma, patience=3):
     """Function to train a model on a given training dataloader using Binary Focal Loss."""
     
     model = model.to(device)
@@ -185,6 +197,9 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
     optim_1 = optim.Adam(model.parameters(), lr=lr)
 
     start_time = time.time()  # Start timing
+
+    best_val_f1 = 0.0
+    epochs_since_improvement = 0
 
     for epoch in range(n_epochs):
         print(f'Epoch: {epoch+1}/{n_epochs}')
@@ -199,7 +214,7 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
 
         # Training Phase
         for idx, (imgs, labels) in enumerate(train_loader):
-            print(f"Batch: {idx+1}/{len(train_loader)}")
+            # print(f"Batch: {idx+1}/{len(train_loader)}")
             corr, tot = 0, 0
             imgs = imgs.to(device)
             labels = labels.to(device).float().unsqueeze(1)  # Ensure labels are float and match output size
@@ -290,9 +305,6 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
         val_epoch_f1 = f1_score(val_labels, val_preds, average='weighted')
         val_kappa = cohen_kappa_score(val_labels, val_preds)
 
-        print(f"Labels: {val_labels}")
-        print(f"Predictions: {val_preds}")
-
         # Log validation metrics
         wandb.log({
             "epoch": epoch + 1,
@@ -312,11 +324,21 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
               f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}, "
               f"Validation Kappa: {val_kappa}")
 
+        # Early stopping logic
+        if val_epoch_f1 > best_val_f1:
+            best_val_f1 = val_epoch_f1
+            epochs_since_improvement = 0
+        else:
+            epochs_since_improvement += 1
+
+        if epochs_since_improvement >= patience:
+            print(f"Early stopping triggered after {epoch+1} epochs.")
+            break
+
     end_time = time.time()  # End timing
     total_time = end_time - start_time
     print(f"Total training time: {total_time:.2f} seconds")
     return model
-
 
 def test_model(test_loader, model, device, test_dataset_name):
     """Function to evaluate a trained model on a specific test loader.
@@ -379,150 +401,3 @@ def test_model(test_loader, model, device, test_dataset_name):
 
     return test_labels, test_preds
 
-def train_model_aug(train_loader, val_loader, model, n_epochs, lr, device, p_aug):
-    """Function to train a model on a given training dataloader."""
-    # Define augmentations
-    augmentations_list = [
-        transforms.RandomHorizontalFlip(p=1.0),
-        transforms.RandomRotation(15),
-        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
-    ]
-    model = model.to(device)
-
-    criterion = nn.BCEWithLogitsLoss()  # Use BCEWithLogitsLoss for binary classification
-    optim_1 = optim.Adam(model.parameters(), lr=lr)
-
-    start_time = time.time()  # Start timing
-
-    for epoch in range(n_epochs):
-        print(f'Epoch: {epoch+1}/{n_epochs}')
-
-        model.train()  # set to training mode
-
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        all_labels = []
-        all_preds = []
-
-        # Training Phase
-        for idx, (imgs, labels) in enumerate(train_loader):
-            print(f"Batch: {idx+1}/{len(train_loader)}")
-            corr, tot = 0, 0
-            imgs = imgs.to(device)
-            labels = labels.to(device).float().unsqueeze(1)  # Ensure labels are float and match output size
-
-            random_number = random.random()
-            print(f"Random value: {random_number}")
-
-            if random_number >= p_aug:
-                print("Augmenting batch...")
-
-                imgs = torch.stack([augmentations_list(img) for img in imgs])
-
-            optim_1.zero_grad()
-
-            features = model.features2(imgs)
-            output = model.classifier(features)
-
-            loss = criterion(output, labels)
-
-            loss.backward()
-            optim_1.step()
-
-            running_loss += loss.item()
-
-            preds = torch.sigmoid(output) > 0.5  # Convert logits to binary predictions
-            total += labels.size(0) 
-            correct += (preds == labels).sum().item()
-            tot += labels.size(0)
-            corr += (preds == labels).sum().item()
-
-            all_labels.extend(labels.cpu().numpy())
-            all_preds.extend(preds.cpu().numpy())
-
-            batch_acc = corr / tot
-
-        # Log metrics every batch
-
-            wandb.log({
-                "batch": idx + 1,
-                "batch_loss": loss.item(),
-                "batch_accuracy": batch_acc
-            })
-
-            del imgs, labels, output, features
-            torch.cuda.empty_cache()
-
-        epoch_loss = running_loss / len(train_loader)
-        epoch_acc = correct / total
-        epoch_precision = precision_score(all_labels, all_preds, average='weighted')
-        epoch_recall = recall_score(all_labels, all_preds, average='weighted')
-        epoch_f1 = f1_score(all_labels, all_preds, average='weighted')
-
-        # Log training metrics
-        wandb.log({
-            "epoch": epoch + 1,
-            "train_loss": epoch_loss,
-            "train_accuracy": epoch_acc,
-            "train_precision": epoch_precision,
-            "train_recall": epoch_recall,
-            "train_f1": epoch_f1
-        })
-
-        model.eval()
-        val_running_loss = 0.0
-        val_correct = 0
-        val_total = 0
-        val_labels = []
-        val_preds = []
-
-        with torch.no_grad():
-            for imgs, labels in val_loader:
-                imgs = imgs.to(device)
-                labels = labels.to(device).float().unsqueeze(1)  # Ensure labels are float and match output size
-
-                features = model.features2(imgs)
-                output = model.classifier(features)
-
-                loss = criterion(output, labels)
-
-                val_running_loss += loss.item()
-
-                preds = torch.sigmoid(output) > 0.5  # Convert logits to binary predictions
-                val_total += labels.size(0)
-                val_correct += (preds == labels).sum().item()
-
-                val_labels.extend(labels.cpu().numpy())
-                val_preds.extend(preds.cpu().numpy())
-
-                del imgs, labels, output, features
-                torch.cuda.empty_cache()
-
-        val_epoch_loss = val_running_loss / len(val_loader)
-        val_epoch_acc = val_correct / val_total
-        val_epoch_precision = precision_score(val_labels, val_preds, average='weighted')
-        val_epoch_recall = recall_score(val_labels, val_preds, average='weighted')
-        val_epoch_f1 = f1_score(val_labels, val_preds, average='weighted')
-
-        # Log validation metrics
-        wandb.log({
-            "epoch": epoch + 1,
-            "val_loss": val_epoch_loss,
-            "val_accuracy": val_epoch_acc,
-            "val_precision": val_epoch_precision,
-            "val_recall": val_epoch_recall,
-            "val_f1": val_epoch_f1
-        })
-
-        # Print results per epoch
-        print(f"Epoch [{epoch+1}/{n_epochs}] - Training Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}, "
-              f"Training Precision: {epoch_precision:.4f}, Training Recall: {epoch_recall:.4f}, Training F1: {epoch_f1:.4f}")
-
-        print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
-              f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}")
-
-    end_time = time.time()  # End timing
-    total_time = end_time - start_time
-    print(f"Total training time: {total_time:.2f} seconds")
-    return model
