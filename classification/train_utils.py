@@ -34,7 +34,8 @@ class BinaryFocalLoss(nn.Module):
     def forward(self, inputs, targets):
         BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         pt = torch.exp(-BCE_loss)
-        F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        F_loss = alpha_t * (1 - pt) ** self.gamma * BCE_loss
         return F_loss.mean()
 def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weight, patience=3):
     """Function to train a model on a given training dataloader."""
@@ -47,6 +48,8 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
     start_time = time.time()  # Start timing
 
     best_val_f1 = 0.0
+    best_val_epoch_loss = float('inf')
+    best_val_kappa = float('-inf')
     epochs_since_improvement = 0
 
     for epoch in range(n_epochs):
@@ -107,6 +110,8 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
         epoch_recall = recall_score(all_labels, all_preds, average='weighted')
         epoch_f1 = f1_score(all_labels, all_preds, average='weighted')
 
+        epoch_kappa = cohen_kappa_score(all_labels, all_preds)
+
         # Log training metrics
         wandb.log({
             "epoch": epoch + 1,
@@ -114,7 +119,8 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
             "train_accuracy": epoch_acc,
             "train_precision": epoch_precision,
             "train_recall": epoch_recall,
-            "train_f1": epoch_f1
+            "train_f1": epoch_f1,
+            "train_kappa": epoch_kappa
         })
 
         model.eval()
@@ -171,17 +177,41 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
 
         print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
               f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}, Validation Kappa: {val_kappa}")
+        
+        epoch_train_cm = confusion_matrix(all_labels, all_preds)
+        epoch_val_cm = confusion_matrix(val_labels, val_preds)
 
+        print(f"Training Confusion Matrix:\n{epoch_train_cm}")
+        print(f"Validation Confusion Matrix:\n{epoch_val_cm}")
+        print("****"*25 + "\n")
+
+        # Update best validation metrics
+        if val_epoch_loss < best_val_epoch_loss:
+            best_val_epoch_loss = val_epoch_loss
+            # Optionally save the model state
+            torch.save({'model_state_dict': model.state_dict(),
+                       'optimizer_state_dict': optim_1.state_dict(),
+                       'epoch': epoch+1,
+                       }, 'best_model_val_loss.pth' )
+
+        if val_kappa > best_val_kappa:
+            best_val_kappa = val_kappa
+            # Optionally save the model state
+            torch.save({'model_state_dict': model.state_dict(),
+                       'optimizer_state_dict': optim_1.state_dict(),
+                       'epoch': epoch+1,
+                       }, 'best_model_val_kappa.pth' )
+            
         # Early stopping logic
-        if val_epoch_f1 > best_val_f1:
-            best_val_f1 = val_epoch_f1
-            epochs_since_improvement = 0
-        else:
-            epochs_since_improvement += 1
+        # if val_epoch_f1 > best_val_f1:
+        #     best_val_f1 = val_epoch_f1
+        #     epochs_since_improvement = 0
+        # else:
+        #     epochs_since_improvement += 1
 
-        if epochs_since_improvement >= patience:
-            print(f"Early stopping triggered after {epoch+1} epochs.")
-            break
+        # if epochs_since_improvement >= patience:
+        #     print(f"Early stopping triggered after {epoch+1} epochs.")
+        #     break
 
     end_time = time.time()  # End timing
     total_time = end_time - start_time
@@ -199,6 +229,8 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
     start_time = time.time()  # Start timing
 
     best_val_f1 = 0.0
+    best_val_epoch_loss = float('inf')
+    best_val_kappa = float('-inf')
     epochs_since_improvement = 0
 
     for epoch in range(n_epochs):
@@ -323,17 +355,43 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
         print(f"Validation Loss: {val_epoch_loss:.4f}, Validation Accuracy: {val_epoch_acc:.2f}, "
               f"Validation Precision: {val_epoch_precision:.4f}, Validation Recall: {val_epoch_recall:.4f}, Validation F1: {val_epoch_f1:.4f}, "
               f"Validation Kappa: {val_kappa}")
+        
+        epoch_train_cm = confusion_matrix(all_labels, all_preds)
+        epoch_val_cm = confusion_matrix(val_labels, val_preds)
+
+        print(f"Training Confusion Matrix:\n{epoch_train_cm}")
+        print(f"Validation Confusion Matrix:\n{epoch_val_cm}")
+        print("****"*25 + "\n")
+
+        # Update best validation metrics
+        if val_epoch_loss < best_val_epoch_loss:
+            best_val_epoch_loss = val_epoch_loss
+            # Optionally save the model state
+            torch.save({'model_state_dict': model.state_dict(),
+                       'optimizer_state_dict': optim_1.state_dict(),
+                       'epoch': epoch+1,
+                       }, 'best_model_val_loss.pth' )
+
+
+        if val_kappa > best_val_kappa:
+            best_val_kappa = val_kappa
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optim_1.state_dict(),
+                'epoch': epoch + 1,
+            }, 'best_model_val_kappa.pth')
+
 
         # Early stopping logic
-        if val_epoch_f1 > best_val_f1:
-            best_val_f1 = val_epoch_f1
-            epochs_since_improvement = 0
-        else:
-            epochs_since_improvement += 1
+        # if val_epoch_f1 > best_val_f1:
+        #     best_val_f1 = val_epoch_f1
+        #     epochs_since_improvement = 0
+        # else:
+        #     epochs_since_improvement += 1
 
-        if epochs_since_improvement >= patience:
-            print(f"Early stopping triggered after {epoch+1} epochs.")
-            break
+        # if epochs_since_improvement >= patience:
+        #     print(f"Early stopping triggered after {epoch+1} epochs.")
+        #     break
 
     end_time = time.time()  # End timing
     total_time = end_time - start_time
