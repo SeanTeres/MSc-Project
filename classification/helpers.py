@@ -242,7 +242,7 @@ def compute_pos_weight(train, target_label):
     N_pos = class_counts[1]  # Positive class count
     N_neg = class_counts[0]  # Negative class count
 
-    pos_weight = torch.tensor([ (N_neg + N_pos) / N_pos ], dtype=torch.float32)
+    pos_weight = torch.tensor([ N_neg / N_pos ], dtype=torch.float32)
 
     return pos_weight
 
