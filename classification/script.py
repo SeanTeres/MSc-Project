@@ -332,20 +332,20 @@ for experiment_name, experiment in config['experiments'].items():
     print(f"Classification Report ({experiment_name} - MBOD 2)")
     print(report_d2)
 
-    print(f"{experiment_name} MBOD 1")
+    print(f"{experiment_name} MBOD 2")
     print(cm_d2)
 
     plt.figure(figsize=(10, 6))
 
     plt.subplot(1, 2, 1)
     sns.heatmap(cm_d1, annot=True, fmt='d', cmap='Blues')
-    plt.title(f"{experiment_name} - MBOD 1)")
+    plt.title(f"{experiment_name} - MBOD 1")
 
     plt.subplot(1, 2, 2)
     sns.heatmap(cm_d2, annot=True, fmt='d', cmap='Blues')
     plt.title(f"{experiment_name} - MBOD 2")
 
     plt.savefig(f"v4_plots/conf_mat_{experiment_name}.png")
-    wandb.log({f"cm-{experiment_name}": wandb.Image(plt)})
+    wandb.log({f"conf_mat": wandb.Image(plt)})
 
     wandb.finish()

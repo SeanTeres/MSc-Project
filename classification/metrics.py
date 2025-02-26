@@ -47,7 +47,7 @@ def evaluate_classification(confusion_matrix, labels):
 
 # Example usage
 if __name__ == "__main__":
-    cm = np.array([[13, 29], [24, 111]])
+    cm = np.array([[9, 33], [17, 118]])
     labels = ['Class 0', 'Class 1']
     metrics = evaluate_classification(cm, labels)
     for key, value in metrics.items():

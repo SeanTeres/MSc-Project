@@ -78,20 +78,16 @@ sweep_config = {
         },
         'loss_function': {
             'distribution': 'categorical',
-            'values': ['CrossEntropyLoss', 'FocalLoss']
+            'values': ['FocalLoss']
         },
         'alphas_FLoss': {
             'distribution': 'uniform',
             'min': 0.1,
             'max': 0.5
         }, 
-        'FE_method': {
-            'distribution': 'categorical',
-            'values': ['features2']
-        },
         'target': {
             'distribution': 'categorical',
-            'values': ['Profusion']
+            'values': ['Profusion', 'TBA-TBU']
         }
     }
 }
@@ -230,7 +226,7 @@ def train():
         )
 
 # Initialize sweep
-sweep_id = wandb.sweep(sweep_config, project='MBOD-4')
+sweep_id = wandb.sweep(sweep_config, project='MBOD-SWEEP')
 
 # Start the sweep
-wandb.agent(sweep_id, function=train, count=10)
+wandb.agent(sweep_id, function=train, count=15)
