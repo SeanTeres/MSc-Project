@@ -2,7 +2,7 @@ import torch
 import pydicom
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset, WeightedRandomSampler, DataLoader, Subset
+from torch.utils.data import Dataset, WeightedRandomSampler, DataLoader, Subset, ConcatDataset
 import torchvision.transforms as transforms
 import os
 import torchxrayvision as xrv
@@ -17,6 +17,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import precision_score, recall_score, f1_score, cohen_kappa_score, classification_report, confusion_matrix
 import helpers, train_utils, classes
+
+
+# Log augmented images
+def log_augmented_images(dataset, num_images=5):
+    images = []
+    for i in range(num_images):
+        img, label = dataset[i]
+        images.append(wandb.Image(img.permute(1, 2, 0).numpy(), caption=f"Label: {label}"))
+    wandb.log({"Augmented Images": images})
+
+
 
 with open('classification/config.yaml', 'r') as file:
     config = yaml.safe_load(file)
@@ -46,11 +57,8 @@ split_indices = {
     'd2': {'train': train_indices_d2, 'val': val_indices_d2, 'test': test_indices_d2}
 }
 
-# Define augmentations
-augmentations_list = transforms.Compose([
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(10)
-])
+
+
 
 
 for experiment_name, experiment in config['experiments'].items():
@@ -59,12 +67,21 @@ for experiment_name, experiment in config['experiments'].items():
     n_epochs = experiment['n_epochs']
     batch_size = experiment['batch_size']
     train_dataset = experiment['train_dataset']
-    model = experiment['model']
+    model_name = experiment['model']
     oversampling = experiment['oversampling']
     loss_function = experiment['loss_function']
     augmentations = experiment['augmentation']
     model_resolution = experiment['model_resolution']
     target_label = experiment['target']
+
+    # Create the transformation pipeline
+    augmentations_list = transforms.RandomApply([
+        # transforms.CenterCrop(np.round(224 * 0.9).astype(int)),  # Example crop
+        transforms.RandomRotation(degrees=(-5, 5)),  
+        transforms.Lambda(lambda img: helpers.salt_and_pepper_noise_tensor(img, prob=0.02)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomAffine(degrees=0, translate=(0.025, 0.025))
+    ], p=0.5) 
 
     d1.set_target(target_label, model_resolution)
     d2.set_target(target_label, model_resolution)
@@ -74,6 +91,8 @@ for experiment_name, experiment in config['experiments'].items():
 
     d1_aug.set_target(target_label, model_resolution)
     d2_aug.set_target(target_label, model_resolution)
+
+    
 
     train_d1 = Subset(d1, train_indices_d1)
     train_aug_d1 = Subset(d1_aug, train_indices_d1)
@@ -87,11 +106,25 @@ for experiment_name, experiment in config['experiments'].items():
     val_d2 = Subset(d2, val_indices_d2)
     test_d2 = Subset(d2, test_indices_d2)
 
-    model = xrv.models.DenseNet(weights="densenet121-res224-all")
-    model = model.to(device)
+    if model_resolution == 224:
+        print(f"Model is: {model_name}, model_resolution is: {model_resolution}")
+        model = xrv.models.DenseNet(weights=model_name)
+        model = model.to(device)
 
-    in_features = 1024  # Based on the output of model.features2()
-    model.classifier = classes.BaseClassifier(in_features).to(device)
+        in_features = 1024  # Based on the output of model.features2()
+        model.classifier = classes.BaseClassifier(in_features).to(device)
+
+    elif model_resolution == 512:
+        print(f"Model is: {model_name}, model_resolution is: {model_resolution}")
+        model = xrv.models.ResNet(weights=model_name)
+        model = model.to(device)
+
+        model.features2 = model.features
+        in_features = 2048
+        model.classifier = classes.BaseClassifier512(in_features).to(device)
+    
+    else:
+        print("ERR: Unrecognized model resolution.")
 
 
     # Create dataloaders
@@ -101,30 +134,37 @@ for experiment_name, experiment in config['experiments'].items():
 
     train_loader_d2, train_aug_loader_d2, val_loader_d2, test_loader_d2 = helpers.create_dataloaders(
         train_d2, train_aug_d2, val_d2, test_d2, experiment['batch_size'], target=target_label
-    )        
+    )
+
+    concat_train = ConcatDataset([train_d1, train_d2])
+
+    concat_train_loader = DataLoader(concat_train, batch_size=experiment['batch_size'], shuffle=True)       
 
     # Print label distribution
     print("Label distribution for training set (D1):", helpers.calc_label_dist(d1, train_loader_d1.dataset, target_label + ' Label'))
     print("Label distribution for validation set (D1):", helpers.calc_label_dist(d1, val_loader_d1.dataset, target_label + ' Label'))
     print("Label distribution for test set (D1):", helpers.calc_label_dist(d1, test_loader_d1.dataset, target_label + ' Label'))
-    
+    print("*****"*50 + '\n')
     print("Label distribution for training set (D2):", helpers.calc_label_dist(d2, train_loader_d2.dataset, target_label + ' Label'))
     print("Label distribution for validation set (D2):", helpers.calc_label_dist(d2, val_loader_d2.dataset, target_label + ' Label'))
     print("Label distribution for test set (D2):", helpers.calc_label_dist(d2, test_loader_d2.dataset, target_label + ' Label'))
+    print("*****"*50 + '\n')
+
 
     # Initialize wandb
     wandb.login()
     wandb.init(project='MBOD-4', name=experiment_name)
     wandb.config.update(experiment)
-
-    in_features = 1024  # Based on the output of model.features2()
-    model.classifier = classes.BaseClassifier(in_features).to(device)
+    # in_features = 1024  # Based on the output of model.features2()
+    # model.classifier = classes.BaseClassifier(in_features).to(device)
 
     # Train and evaluate model
     test_labels_d1, test_labels_d2, test_preds_d1, test_preds_d2 = [], [], [], []
 
     if augmentations:
         print(f"ON THE FLY AUGMENTATION!")
+        # Log augmented images from the training dataset
+        log_augmented_images(train_aug_d1)
         train_loader_d1 = train_aug_loader_d1
         train_loader_d2 = train_aug_loader_d2
     else:
@@ -138,21 +178,32 @@ for experiment_name, experiment in config['experiments'].items():
         if(loss_function == "CrossEntropyLoss"):
             if(oversampling):
                 pos_weight = helpers.compute_pos_weight(train_d1, target_label + ' Label')
+                wandb.log({
+                    "BCE pos_weight": pos_weight
+                })
 
                 print(f"Oversampling with pos_weight = {pos_weight} ---- dataset {train_dataset}")
             else:
                 pos_weight = torch.tensor([1.0])
+                wandb.log({
+                    "BCE pos_weight": pos_weight
+                })
             
-            model = train_utils.train_model(train_loader_d1, val_loader_d1, model, n_epochs, lr, device, pos_weight=pos_weight)
+            model = train_utils.train_model(train_loader_d1, val_loader_d1, model, n_epochs, lr, device, pos_weight=pos_weight, experiment_name=experiment_name)
 
 
         elif (loss_function == "FocalLoss"):
 
             alpha_d1 = helpers.get_alpha_FLoss(train_d1, target_label + ' Label')
+            gamma = 2
+            wandb.log({
+                "FLoss alpha": alpha_d1,
+                "FLoss gamma": gamma
+            })
             print(f"Focal Loss with alpha = {alpha_d1} ---- dataset {train_dataset}")
 
 
-            model = train_utils.train_model_with_focal_loss(train_loader_d1, val_loader_d1, model, n_epochs, lr, device, alpha=alpha_d1, gamma=2)
+            model = train_utils.train_model_with_focal_loss(train_loader_d1, val_loader_d1, model, n_epochs, lr, device, alpha=alpha_d1, gamma=gamma, experiment_name=experiment_name)
             
         else:
             print("ERR: Loss function must be CrossEntropyLoss or FocalLoss.")
@@ -164,22 +215,99 @@ for experiment_name, experiment in config['experiments'].items():
 
             if(oversampling):
                 pos_weight = helpers.compute_pos_weight(train_d2, target_label + ' Label')
-
+                wandb.log({
+                    "BCE pos_weight": pos_weight
+                })
                 print(f"Oversampling with pos_weight = {pos_weight} ---- dataset {train_dataset}")
 
             else:
                 pos_weight = torch.tensor([1.0])
+                wandb.log({
+                    "BCE pos_weight": pos_weight
+                })
 
-            model = train_utils.train_model(train_loader_d2, val_loader_d2, model, n_epochs, lr, device, pos_weight=pos_weight)
-            
+            model = train_utils.train_model(train_loader_d2, val_loader_d2, model, n_epochs, lr, device, pos_weight=pos_weight, experiment_name=experiment_name)
 
-
-        elif(loss_function == "FocalLoss"):
+        elif (loss_function == "FocalLoss"):
             alpha_d2 = helpers.get_alpha_FLoss(train_d2, target_label + ' Label')
+            gamma = 2
             print(f"Focal Loss with alpha = {alpha_d2} ---- dataset {train_dataset}")
 
+            wandb.log({
+                "FLoss alpha": alpha_d2,
+                "FLoss gamma": gamma
+            })
 
-            model = train_utils.train_model_with_focal_loss(train_loader_d2, val_loader_d2, model, n_epochs, lr, device, alpha=alpha_d2, gamma=2)
+
+
+            model = train_utils.train_model_with_focal_loss(train_loader_d2, val_loader_d2, model,
+                                                            n_epochs, lr, device, alpha=alpha_d2, gamma=gamma, experiment_name=experiment_name)
+    
+# ... existing code ...
+
+    elif(train_dataset == "Combined"):
+        print("Training on Combined Dataset\n")
+
+        if(loss_function == "CrossEntropyLoss"):
+            if(oversampling):
+                pos_weight_d1 = helpers.compute_pos_weight(train_d1, target_label + ' Label')
+                pos_weight_d2 = helpers.compute_pos_weight(train_d2, target_label + ' Label')
+                pos_weight = (pos_weight_d1 + pos_weight_d2) / 2
+                wandb.log({
+                    "BCE pos_weight": pos_weight
+                })
+                print(f"Oversampling with pos_weight = {pos_weight} ---- dataset {train_dataset}")
+
+            else:
+                pos_weight = torch.tensor([1.0])
+                wandb.log({
+                    "BCE pos_weight": pos_weight
+                })
+
+            model = train_utils.train_model(concat_train_loader, val_loader_d2, model, n_epochs, lr, device, pos_weight=pos_weight, experiment_name=experiment_name)
+            wandb.log({
+                "val_loss_d1": val_loss_d1,
+                "val_acc_d1": val_acc_d1,
+                "val_f1_d1": val_f1_d1,
+                "val_kappa_d1": val_kappa_d1,
+                "val_loss_d2": val_loss_d2,
+                "val_acc_d2": val_acc_d2,
+                "val_f1_d2": val_f1_d2,
+                "val_kappa_d2": val_kappa_d2
+            })
+
+        elif (loss_function == "FocalLoss"):
+            alpha_d1 = helpers.get_alpha_FLoss(train_d1, target_label + ' Label')
+            alpha_d2 = helpers.get_alpha_FLoss(train_d2, target_label + ' Label')
+            alpha = (alpha_d1 + alpha_d2) / 2
+            gamma = 2
+            print(f"Focal Loss with alpha = {alpha} ---- dataset {train_dataset}")
+
+            wandb.log({
+                "FLoss alpha": alpha,
+                "FLoss gamma": gamma
+            })
+
+            model = train_utils.train_model_with_focal_loss(concat_train_loader, val_loader_d1, model, n_epochs, lr, device, alpha=alpha, gamma=gamma, experiment_name=experiment_name)
+
+            # Evaluate on separate validation sets
+            val_loss_d1, val_acc_d1, val_precision_d1, val_recall_d1, val_f1_d1, val_kappa_d1 = train_utils.validate_model(val_loader_d1, model, device, "Dataset 1")
+            val_loss_d2, val_acc_d2, val_precision_d2, val_recall_d2, val_f1_d2, val_kappa_d2 = train_utils.validate_model(val_loader_d2, model, device, "Dataset 2")
+
+            print(f"Validation Results for Dataset 1 - Loss: {val_loss_d1:.4f}, Accuracy: {val_acc_d1:.2f}, F1 Score: {val_f1_d1:.4f}, Kappa: {val_kappa_d1:.4f}")
+            print(f"Validation Results for Dataset 2 - Loss: {val_loss_d2:.4f}, Accuracy: {val_acc_d2:.2f}, F1 Score: {val_f1_d2:.4f}, Kappa: {val_kappa_d2:.4f}")
+
+            wandb.log({
+                "val_loss_d1": val_loss_d1,
+                "val_acc_d1": val_acc_d1,
+                "val_f1_d1": val_f1_d1,
+                "val_kappa_d1": val_kappa_d1,
+                "val_loss_d2": val_loss_d2,
+                "val_acc_d2": val_acc_d2,
+                "val_f1_d2": val_f1_d2,
+                "val_kappa_d2": val_kappa_d2
+            })
+
     else:
         print("ERR: Unrecognized dataset name.")
 
@@ -211,11 +339,11 @@ for experiment_name, experiment in config['experiments'].items():
 
     plt.subplot(1, 2, 1)
     sns.heatmap(cm_d1, annot=True, fmt='d', cmap='Blues')
-    plt.title(f"Confusion Matrix ({experiment_name})- MBOD 1)")
+    plt.title(f"{experiment_name} - MBOD 1)")
 
     plt.subplot(1, 2, 2)
     sns.heatmap(cm_d2, annot=True, fmt='d', cmap='Blues')
-    plt.title(f"{experiment_name}) - MBOD 2")
+    plt.title(f"{experiment_name} - MBOD 2")
 
     plt.savefig(f"v4_plots/conf_mat_{experiment_name}.png")
     wandb.log({f"cm-{experiment_name}": wandb.Image(plt)})

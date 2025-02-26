@@ -2,7 +2,7 @@ import torch
 import pydicom
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset, WeightedRandomSampler
+from torch.utils.data import Dataset, WeightedRandomSampler, ConcatDataset
 import torchvision.transforms as transforms
 import os
 import torchxrayvision as xrv
@@ -87,24 +87,6 @@ def create_dataloaders(train, aug_train, val, test, batch_size, target):
     print(f"LENGTHS: {len(train_loader), len(aug_train_loader)}")
     
     return train_loader, aug_train_loader, val_loader, test_loader
-
-def read_data(d1, d2, train_size):
-    train_d1, val_d1, test_d1 = split_with_indices(d1, train_size=train_size)
-    train_d2, val_d2, test_d2 = split_with_indices(d2, train_size=train_size)
-
-    # Define augmentations as individual transforms
-    augmentations_list = [
-        transforms.RandomHorizontalFlip(p=1.0),  # Always flip
-        transforms.RandomRotation(15),# Rotate by 15 degrees
-        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)) # Slight Blur
-
-    ]
-
-    # Wrap the training set in the augmented dataset
-    augmented_train_d1 = classes.AugmentedDataset(base_dataset=train_d1, augmentations_list=augmentations_list)
-    augmented_train_d2 = classes.AugmentedDataset(base_dataset=train_d2, augmentations_list=augmentations_list)
-
-    return train_d1, augmented_train_d1, val_d1, test_d1, train_d2, augmented_train_d2, val_d2, test_d2
 
 def contains_tba_or_tbu(string):
     if isinstance(string, float):
@@ -246,4 +228,25 @@ def compute_pos_weight(train, target_label):
 
     return pos_weight
 
+def salt_and_pepper_noise_tensor(image, prob=0.02):
+    """
+    Apply salt-and-pepper noise to a PyTorch tensor image.
+    
+    :param image: PyTorch tensor of shape (C, H, W), values in [0,1].
+    :param prob: Probability of a pixel being affected.
+    :return: Noisy image tensor.
+    """
+    assert image.dim() == 3, "Input must be a 3D tensor (C, H, W)"
+    
+    noisy_image = image.clone()  # Clone to avoid modifying original image
+    
+    # Generate random noise mask
+    rand_tensor = torch.rand_like(image)  # Random values between [0,1]
 
+    # Apply Salt (white pixels)
+    noisy_image[rand_tensor < prob / 2] = 1.0  # If image is in [0,1], use 255.0 for [0,255]
+
+    # Apply Pepper (black pixels)
+    noisy_image[rand_tensor > 1 - prob / 2] = 0.0
+
+    return noisy_image

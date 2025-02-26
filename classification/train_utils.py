@@ -23,8 +23,9 @@ import time
 import random
 
 
-from helpers import read_and_normalize_xray, split_with_indices, create_dataloaders
+from helpers import read_and_normalize_xray, split_with_indices
 from classes import DICOMDataset1, DICOMDataset2, AugmentedDataset, BaseClassifier
+
 class BinaryFocalLoss(nn.Module):
     def __init__(self, alpha, gamma):
         super(BinaryFocalLoss, self).__init__()
@@ -37,9 +38,10 @@ class BinaryFocalLoss(nn.Module):
         alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
         F_loss = alpha_t * (1 - pt) ** self.gamma * BCE_loss
         return F_loss.mean()
-def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weight, patience=3):
-    """Function to train a model on a given training dataloader."""
     
+def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weight, experiment_name):
+    """Function to train a model on a given training dataloader."""
+    patience = 3
     model = model.to(device)
 
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))  # Use BCEWithLogitsLoss for binary classification
@@ -49,6 +51,7 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
 
     best_val_f1 = 0.0
     best_val_epoch_loss = float('inf')
+    best_val_f1 = float('-inf')
     best_val_kappa = float('-inf')
     epochs_since_improvement = 0
 
@@ -186,13 +189,13 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
         print("****"*25 + "\n")
 
         # Update best validation metrics
-        if val_epoch_loss < best_val_epoch_loss:
-            best_val_epoch_loss = val_epoch_loss
+        # if val_epoch_loss < best_val_epoch_loss:
+            # best_val_epoch_loss = val_epoch_loss
             # Optionally save the model state
-            torch.save({'model_state_dict': model.state_dict(),
-                       'optimizer_state_dict': optim_1.state_dict(),
-                       'epoch': epoch+1,
-                       }, 'best_model_val_loss.pth' )
+            # torch.save({'model_state_dict': model.state_dict(),
+                       # 'optimizer_state_dict': optim_1.state_dict(),
+                       # 'epoch': epoch+1,
+                       # }, f'{experiment_name}_best_model_val_loss.pth' )
 
         if val_kappa > best_val_kappa:
             best_val_kappa = val_kappa
@@ -200,26 +203,41 @@ def train_model(train_loader, val_loader, model, n_epochs, lr, device, pos_weigh
             torch.save({'model_state_dict': model.state_dict(),
                        'optimizer_state_dict': optim_1.state_dict(),
                        'epoch': epoch+1,
-                       }, 'best_model_val_kappa.pth' )
+                       }, f'{experiment_name}_best_model_val_kappa.pth' )
+        
+        if val_epoch_f1 > best_val_f1:
+            best_val_f1 = val_epoch_f1
+            # Optionally save the model state
+            torch.save({'model_state_dict': model.state_dict(),
+                       'optimizer_state_dict': optim_1.state_dict(),
+                       'epoch': epoch+1,
+                       }, f'{experiment_name}_best_model_val_f1.pth' )
             
         # Early stopping logic
         # if val_epoch_f1 > best_val_f1:
-        #     best_val_f1 = val_epoch_f1
-        #     epochs_since_improvement = 0
-        # else:
-        #     epochs_since_improvement += 1
+          #  best_val_f1 = val_epoch_f1
+           # epochs_since_improvement = 0
+       #  else:
+           # epochs_since_improvement += 1
 
-        # if epochs_since_improvement >= patience:
-        #     print(f"Early stopping triggered after {epoch+1} epochs.")
-        #     break
+       #  if epochs_since_improvement >= patience:
+            #  print(f"Early stopping triggered after {epoch+1} epochs.")
+             # break
 
     end_time = time.time()  # End timing
     total_time = end_time - start_time
     print(f"Total training time: {total_time:.2f} seconds")
+
+    
+    torch.save({'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optim_1.state_dict(),
+                'epoch': epoch+1,
+                }, f'{experiment_name}_{n_epochs}_final_model.pth' )
     return model
 
-def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, device, alpha, gamma, patience=3):
+def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, device, alpha, gamma, experiment_name):
     """Function to train a model on a given training dataloader using Binary Focal Loss."""
+    patience = 3
     
     model = model.to(device)
 
@@ -290,6 +308,7 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
         epoch_precision = precision_score(all_labels, all_preds, average='weighted')
         epoch_recall = recall_score(all_labels, all_preds, average='weighted')
         epoch_f1 = f1_score(all_labels, all_preds, average='weighted')
+        epoch_kappa = cohen_kappa_score(all_labels, all_preds)
 
         # Log training metrics
         wandb.log({
@@ -298,7 +317,8 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
             "train_accuracy": epoch_acc,
             "train_precision": epoch_precision,
             "train_recall": epoch_recall,
-            "train_f1": epoch_f1
+            "train_f1": epoch_f1,
+            "train_kappa": epoch_kappa
         })
 
         model.eval()
@@ -365,21 +385,23 @@ def train_model_with_focal_loss(train_loader, val_loader, model, n_epochs, lr, d
 
         # Update best validation metrics
         if val_epoch_loss < best_val_epoch_loss:
+            print(f"Prev. best val loss: {best_val_epoch_loss:.4f}, New best val loss: {val_epoch_loss:.4f}\n")
             best_val_epoch_loss = val_epoch_loss
             # Optionally save the model state
             torch.save({'model_state_dict': model.state_dict(),
                        'optimizer_state_dict': optim_1.state_dict(),
                        'epoch': epoch+1,
-                       }, 'best_model_val_loss.pth' )
+                       }, f'{experiment_name}_best_model_val_loss.pth' )
 
 
         if val_kappa > best_val_kappa:
+            print(f"Prev. best val kappa: {best_val_kappa:.4f}, New best val kappa: {val_kappa:.4f}\n")
             best_val_kappa = val_kappa
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optim_1.state_dict(),
                 'epoch': epoch + 1,
-            }, 'best_model_val_kappa.pth')
+            }, f'{experiment_name}_best_model_val_kappa.pth')
 
 
         # Early stopping logic
@@ -458,4 +480,62 @@ def test_model(test_loader, model, device, test_dataset_name):
     print("****"*25)
 
     return test_labels, test_preds
+def validate_model(val_loader, model, device, val_dataset_name):
+    """Function to evaluate a trained model on a specific validation loader.
+    Returns the validation loss, accuracy, precision, recall, F1 score, and Cohen's Kappa."""
+    criterion = nn.BCEWithLogitsLoss()
 
+    model.eval()
+    val_running_loss = 0.0
+    val_correct = 0
+    val_total = 0
+    val_labels = []
+    val_preds = []
+
+    with torch.no_grad():
+        for imgs, labels in val_loader:
+            imgs = imgs.to(device)
+            labels = labels.to(device).float().unsqueeze(1)  # Ensure labels are float and match output size
+
+            features = model.features2(imgs)
+            output = model.classifier(features)
+
+            loss = criterion(output, labels)
+
+            val_running_loss += loss.item()
+
+            preds = torch.sigmoid(output) > 0.5  # Convert logits to binary predictions
+            val_total += labels.size(0)
+            val_correct += (preds == labels).sum().item()
+
+            val_labels.extend(labels.cpu().numpy())
+            val_preds.extend(preds.cpu().numpy())
+
+            del imgs, labels, output, features
+            torch.cuda.empty_cache()
+
+    val_loss = val_running_loss / len(val_loader)
+    val_acc = val_correct / val_total
+    val_precision = precision_score(val_labels, val_preds)
+    val_recall = recall_score(val_labels, val_preds)
+    val_f1 = f1_score(val_labels, val_preds)
+    val_kappa = cohen_kappa_score(val_labels, val_preds)
+
+    # Log validation metrics
+    wandb.log({
+        f"{val_dataset_name}_val_loss": val_loss,
+        f"{val_dataset_name}_val_accuracy": val_acc,
+        f"{val_dataset_name}_val_precision": val_precision,
+        f"{val_dataset_name}_val_recall": val_recall,
+        f"{val_dataset_name}_val_f1": val_f1,
+        f"{val_dataset_name}_val_kappa": val_kappa
+    })
+
+    # Print validation results
+    print(f"Validation Results for {val_dataset_name} - Loss: {val_loss:.4f}, Accuracy: {val_acc:.2f}, "
+          f"Precision: {val_precision:.4f}, Recall: {val_recall:.4f}, F1 Score: {val_f1:.4f}, "
+          f"Cohen's Kappa: {val_kappa:.4f}")
+
+    print("****" * 25)
+
+    return val_loss, val_acc, val_precision, val_recall, val_f1, val_kappa
